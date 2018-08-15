@@ -9,6 +9,8 @@ import re
 import urllib
 import lxml.html
 from lxml.cssselect import CSSSelector
+import sqlite3
+
 dirname = "E:/H"
 libname = "GREvI.xlsm"
 def read_website(link):
@@ -54,6 +56,7 @@ class Vocab:
 		self.___p = None
 		self.__cn = None
 		self.__en = None
+		self._syn = None
 		self.etym = None
 		self.skip = False
 	def __str__(self):
@@ -63,7 +66,7 @@ class Vocab:
 		return dirname + "/dictionary/"
 	@property
 	def dirpron(self):
-		return dirname + "/pronunciation/"
+		return dirname + "/p.db"
 	@property
 	def dirorig(self):
 		return dirname + "/english/"
@@ -84,17 +87,21 @@ class Vocab:
 			results = sel(tree)
 			return results
 		return []
-
 	@property
 	def pronunciation(self):
 		directory = self.dirpron
 		if self.___p is None:
-			if local_exist(directory, self.word):
-				with open(directory+self.word+".txt", 'r') as f:
-					p = f.read()
+			conn = sqlite3.connect(self.dirpron)
+			c = conn.cursor()
+			c.execute('SELECT * FROM P WHERE word=\"%s\"'%self.word)
+			ret = c.fetchone()
+			if ret: 
+				p =  ret[1]
 			else:
 				p = self.__get_pronunciation_from_internet()
-				self.__save_to_localfile(directory, p)
+				cmd = "INSERT INTO P VALUES (\"%s\",\"%s\")"%(self.word, p)
+				c.execute(cmd)
+			conn.close()
 			self.___p = p
 		return self.___p
 	def __get_pronunciation_from_internet(self):
@@ -217,13 +224,37 @@ class Vocab:
 					return substring
 		return None
 	@property
+	def english1(self):
+		directory = dirname + "/english_1/"
+		if self._syn is None:
+			if local_exist(directory, self.word):
+				with open(directory+self.word+".txt", 'r') as f:
+					english = f.read()
+			else:
+				english = self.__get_english_from_internet()
+				self.__save_to_localfile(directory, english)
+			self._syn = ""
+			for line in english.split('\n'):
+				if len(line) == 0:
+					continue
+				indA = line.find(")")
+				indB = line[1:].find("(")
+				wordlist = re.findall('([a-zA-Z]+)', line[indA+1:indB])
+
+				if self.word in wordlist:
+					part = line[:indA+1]
+					mean = line[indB+2:-2]
+					self._syn += (part+mean+"\n")
+			self._syn = english
+		return self._syn
+	@property
 	def synonym(self):
 		arr = []
-		for l in self.english.split("\n"):
+		for l in self.english1.split("\n"):
 			la = l.find(") ")
 			lb = l[la:].find("(")
 			for single in l[la+1:lb+la].split(", "):
 				single = single.strip()
-				if single != self.word and len(single) > 1:
+				if len(single) > 1:
 					arr.append(single)
 		return "%s"%", ".join(set(arr))
