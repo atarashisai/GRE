@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 from __future__ import print_function
 import sys
-reload(sys)
-sys.setdefaultencoding('utf-8')
+PY2 = sys.version_info[0] == 2
+PY3 = sys.version_info[0] == 3
+
+if PY2:
+	reload(sys)
+	sys.setdefaultencoding('utf-8')
 
 import os
 import time

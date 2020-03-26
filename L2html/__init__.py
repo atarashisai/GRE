@@ -1,10 +1,22 @@
 # -*- coding: utf-8 -*-
 from __future__ import print_function
 import sys
-reload(sys)
-sys.setdefaultencoding('utf-8')
+PY2 = sys.version_info[0] == 2
+PY3 = sys.version_info[0] == 3
 
-import urllib
+if PY2:
+	reload(sys)
+	sys.setdefaultencoding('utf-8')
+	import urllib
+	def encode(s, f):
+		return s.encode(f)
+if PY3:
+	import urllib
+	import urllib.request as urllib
+	def unicode(s, f):
+		return s
+	def encode(s, f):
+		return s.decode(f)
 import lxml.html
 from lxml.cssselect import CSSSelector
 import os
@@ -116,7 +128,7 @@ def __parse(word, content, void=False):
 
 def save_to_localfile(word, content):
 	with open(where+word+".html", 'w') as f:
-		f.write(content.encode('utf-8'))
+		f.write(encode(content,'utf-8'))
 
 def read_from_web(word, save=True):
 	link = "https://en.oxforddictionaries.com/definition/%s"%word
