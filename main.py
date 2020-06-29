@@ -3,25 +3,16 @@ from __future__ import print_function
 import sys
 PY2 = sys.version_info[0] == 2
 PY3 = sys.version_info[0] == 3
-
 if PY2:
 	reload(sys)
 	sys.setdefaultencoding('utf-8')
-
-import os
-import time
+import json
+import pprint
+import web
 from Vocab import Vocab
-from Vocab import p
-from Vocab import p_chinese
-from Vocab import withdraw_all
-from Vocab import withdraw_all_old
-from Vocab import update
-from Vocab import local_update
-from Vocab import review
-import Vocab as module_V
-from random import randint
-import random
-module_V.dirname = os.path.dirname(module_V.__file__)
+import Reader
+import time
+import re
 
 def __opt(par):
 	return par in sys.argv
@@ -31,136 +22,203 @@ def __read_par(par, ln=1):
 	arr = sys.argv[ind+1:ind+1+ln]
 	return arr
 
-def __sort_method(vocab):
-    return vocab.pronunciation
+def write_to_backlog(word, data, log):
+	if not log:
+		return
+	with open("backlog.txt", "a+") as f:
+		f.write(word+"\n====\n")
+		pprint.PrettyPrinter(indent=1, stream=f).pprint(data)
+		f.write("****====\n")
+
+def read_from_backlog():
+	with open("backlog.txt", "r+") as f:
+		array = []
+		content = f.read()
+		for x in content.split("****====\n"):
+			print(x)
+			if(len(x) < 2):
+				continue
+			word, correction = x.split("\n====\n")
+			array.append((word, eval(correction)))
+			#print(correction)
+	web.L1.save_to_localfile_multiple(array)
+		#	print_word(word, web.read(word), log=False)
+
+def print_word(word, data, part=None, log=True):
+	vocab = Vocab(word, data)
+	if part != None:
+		vocab.set_part(part)
+	if vocab.exist: 
+		vocab.pprint()
+		write_to_backlog(vocab.word, data, log)
+	else:
+		return
+
+def update(word):
+	return web.update_from_local(word)
+	#print_word(word, web.read(word))
 
 def main():
-	__max__ = -1
-	_delay_ = 0.5
-	_index_ = -1
-	_part__ = None
-	if __opt("-max"):
-		__max__ = int(__read_par("-max")[0])
-	if __opt("-part"):
-		_part__ = "("+__read_par("-part")[0].upper()+")"
-	if __opt("-delay"):
-		_delay_ = float(__read_par("-delay")[0])
+	#data = L1.init()
+	index = 0
 	if __opt("-index"):
-		_index_ = int(__read_par("-index")[0])
-	if __opt("-review"):
-		pool = withdraw_all(module_V.dirname+"/GRE.xlsx", review=True)
-		while True:
-			vocab = random.choice(pool)
-			review(vocab, delay=_delay_)
-		return
-	if __opt("-edit"):
-		word = __read_par("-edit")[0]
-		from tool import __edit
-		v = Vocab(word)
-		__edit(v)
-		p(v, delay=_delay_)
-		return
+		index = int(__read_par("-index")[0])
 	if __opt("-p"):
 		word = __read_par("-p")[0]
-		v = Vocab(word)
-		p(v, delay=_delay_, part=_part__)
+		data = web.read(word)
+		print_word(word, data)
 		return
 	if __opt("-update"):
 		word = __read_par("-update")[0]
-		v = Vocab(word)
-		update(v, delay=_delay_)
+		data = web.update_from_web(word)
+		vocab = Vocab(word, data)
+		print_word(Vocab(word, data), data)
 		return
-	if __opt("-local-update"):
-		word = __read_par("-local-update")[0]
-		v = Vocab(word)
-		update(v, delay=_delay_)
+	if __opt("-correct"):
+		read_from_backlog()
+		with open("backlog.txt", "w+") as f:
+			pass
 		return
-	if __opt("-order"):
-		#pool = withdraw_all(module_V.dirname+"/vocab.xlsx")
-		pool = withdraw_all(module_V.dirname+"/GRE.xlsx")
-		#pool.sort(key=__sort_method)
-		for each in pool:
-			try:
-				if each.pronunciation == "":
-					continue
-				if each.checked == 1.0:
-					continue
-				p(each, delay=_delay_, part=_part__)
-			except KeyError:
-				local_update(each, delay=_delay_, part=_part__)
+	if __opt("-run"):
+		while True:
+			word = input(">")
+			data = update(word)#web.read(word)
+			print_word(word, data)
 		return
 	if __opt("-all"):
-		#pool = withdraw_all(module_V.dirname+"/vocab.xlsx")
-		pool = withdraw_all(module_V.dirname+"/GRE.xlsx")
-		pool.sort(key=__sort_method)
-		for each in pool:
-			try:
-				if each.pronunciation == "":
-					continue
-				p(each, delay=_delay_, part=_part__)
-			except KeyError:
-				local_update(each, delay=_delay_, part=_part__)
+		i = 0
+		# m = len(web.L1._data.keys())*1.0
+		for word, data in web.L1._data.items():
+			i+=1
+			vocab = Vocab(word, data)
+			if len(vocab.pronunciation) < 2:
+				continue
+			# if 'o' in word and 'au' in vocab.pronunciation and 'o' not in vocab.pronunciation and 'əw' not in vocab.pronunciation:
+			# 	before = vocab.pronunciation
+			# 	data = update(word)
+			# 	#print(data)
+			# 	vocab = Vocab(word, data)
+			# 	after  = vocab.pronunciation
+			# 	if before == after:
+			# 		print("%.2f"%(i/m), word, vocab.pronunciation)
+			# 		write_to_backlog(vocab.word, data, True)
+			# 	continue
+			# if 'r' in word and 'r' not in vocab.pronunciation:
+			# 	before = vocab.pronunciation
+			# 	data = update(word)
+			# 	#print(data)
+			# 	vocab = Vocab(word, data)
+			# 	after  = vocab.pronunciation
+			# 	if before == after:
+			# 		print("%.2f"%(i/m), word, vocab.pronunciation)
+			# 		write_to_backlog(vocab.word, data, True)
+			# 	continue
+			#print("%.2f"%(i/m), word, vocab.pronunciation, end="")
 		return
-	if __opt("-rand"):
-		pool = withdraw_all(module_V.dirname+"/GRE.xlsx")
-		pool.sort(key=__sort_method)
-		if _index_ < 0:
-			i = randint(0, len(pool))
-		else:
-			i = _index_
-		for each in pool[i:]:
-			try:
-				if each.pronunciation == "":
-					continue
-				p(each, delay=_delay_, part=_part__)
-			except KeyError:
-				update(each, delay=_delay_, part=_part__)
-			if __max__ > 0:
-				__max__ -= 1
-			if __max__ == 0:
-				return
-			#time.sleep(10)
-		return
-	if __opt("-ch"):
-		word = __read_par("-ch")[0]
-		print(Vocab(word).chinese)
-		return
-	if __opt("-old"):
-		pool = withdraw_all_old(module_V.dirname+"/Category.19.xlsm")
-		# n = len(pool)
-		# i = 0
-		# p1 = 0
-		# p2 = 0
-		# for each in pool:
-		# 	Vocab(each).chinese
-		# 	i += 1
-		# 	p1 = i*100/n
-		# 	if p1 > p2:
-		# 		print("{}%".format(p1))
-		# 		p2 = p1
-		# return
-		sorted_pool = []
-		for each in pool:
-			sorted_pool.append(Vocab(each))
-		sorted_pool.sort(key=sort_method)
 
-		for each in sorted_pool:
-			p(each, skip=False, delay=_delay_)
-			if __max__ > 0:
-				__max__ -= 1
-			if __max__ == 0:
-				return
-			#time.sleep(10)
+	if __opt("-load"):
+		filename = __read_par("-load")[0]
+		with open(filename) as f:
+			lines = f.readlines()
+		for line in lines:
+			if index > 0:
+				index -= 1
+				continue
+			word, rank = line.strip().split("	")
+			if len(rank) < 1:
+				rank = 999999
+			# if word.count(" ") > 0:
+			# 	continue
+			data = web.read(word)
+			vocab = Vocab(word, data, rank=rank)
+			vocab.pprint()
 		return
-	# if __opt("-chinese-only"):
-	# 	pool = withdraw_all(dirxlsm)
-	# 	for each in pool:
-	# 		p_chinese(Vocab(each), skip=False, delay=0)
-	# 		if __max__ > 0:
-	# 			__max__ -= 1
-	# 		if __max__ == 0:
-	# 			return
-	# 		#time.sleep(10)
-	# 	return
+	if __opt("-load-another"):
+		from Vocab import printf
+		filename = __read_par("-load-another")[0]
+		with open(filename) as f:
+			lines = f.readlines()
+		for line in lines:
+			if index > 0:
+				index -= 1
+				continue
+			word, part, mean = line.strip().split("	")
+			if word.count(" ") > 0:
+				printf("*?? :: "+word)
+			else:
+				data = web.read(word)
+				vocab = Vocab(word, data)
+				vocab.set_part(part)
+				vocab.pprint()
+		return
+	if __opt("-read"):
+		filename = __read_par("-read")[0]
+		with open(filename) as f:
+			lines = f.readlines()
+		for line in lines:
+			if index > 0:
+				index -= 1
+				continue
+			if len(line) < 3:
+				continue
+			#if line[0] != "*":
+			#	continue
+			#pair = line.strip().split(":: ")[1].split("　")
+			#if len(pair) < 2:
+			#	pair.append("")
+			#phrase, chinese = pair
+			phrase = line.strip().split("	")[0].lower()
+			if phrase.count(" ") > 1:
+				temp = phrase.split(" ")
+				part = "adjective"
+				word = temp[1]
+			elif phrase.count(" ") > 0 and ',' in phrase:
+				temp = phrase.split(", ")
+				part = "adverb"
+				word = temp[0]
+			elif phrase.count(" ") > 0 and 'to ' in phrase:
+				temp = phrase.split(" ")
+				part = "verb"
+				word = temp[1]
+			elif phrase.count(" ") > 0 and 'be ' in phrase:
+				temp = phrase.split(" ")
+				part = "adjective"
+				word = temp[1]
+			elif phrase.count(" ") > 0 and 'the ' in phrase:
+				temp = phrase.split(" ")
+				part = "noun"
+				word = temp[1]
+			elif phrase.count(" ") > 0:
+				temp = phrase.split(" ")
+				part = 'noun'
+				word = temp[1]
+			else:
+				part = ""
+				word = phrase
+			data = web.read(word)
+			if __opt("-more"):
+				print_word(word, data)
+			else:
+				vocab = Vocab(word, data)
+				vocab.set_part(part)
+				vocab.pprint(title_only=True)
+			continue
+			print(line)
+			print_word(vocab, data, part=part)
+
+			Reader.english(phrase)
+			chinese = re.sub(r'（.*）', '', chinese)
+			Reader.chinese(chinese)
+			Reader.spell(",".join(list(word)))
+			time.sleep(0.5)
+
 if __name__ == "__main__":
 	main()
+
+if False:
+	for each in data.keys():
+		print_word(each, data[each])
+		continue
+		#print(data[each])
+
+	L1.update_db()

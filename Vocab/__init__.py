@@ -1,262 +1,235 @@
 # -*- coding: utf-8 -*-
 from __future__ import print_function
-
-import xlrd
-import time
-from web import get_pronunciation
-from web import get_english
-from web import get_chinese
-from web import update_from_web
-from web import update_from_local
+import sys
 import logging
+import Reader
+import time
+import opencc
+cc = opencc.OpenCC('s2t')
 logging.basicConfig(filename='word.log',level=logging.INFO, format="%(message)s")
 
+def printf(anything):
+	print(anything)
+	logging.info(anything)
+
+def transcribe_pronunciation(spelling):
+	'''
+	This function transcribes the pronunication 
+		from IPA to phonetic symbols.
+	'''
+	def match(begin, original, pattern):
+		pattern_array = list(pattern)
+		size = len(pattern_array)
+		if (size > len(original) - begin):
+			return False
+		for offset in range(0, size):
+			if (original[begin+offset] != pattern_array[offset]):
+				return False
+		return True
+
+	def modify(begin, original, size, wish):
+		for offset in range(1, size):
+			original[begin+offset] = ''
+		original[begin+0] = wish
+		return size-1
+	'''
+	'''
+	all_sound = spelling.split(' | ')
+	if len(all_sound) == 4:
+		spelling = min(all_sound, key=len)
+	array = ['\n']+list(spelling)
+	array.append('\n')
+	skip_counter = 0
+	maxlen = len(array)
+	for i in range(0, maxlen):
+		if skip_counter > 0:
+			skip_counter -= 1
+			continue
+		for each in [
+			(u'\ndʒ' ,u'\nj'),
+			(u'dʒi\n'  ,u'dji\n'),
+			(u'i\n'  ,u'y\n'),
+			(u'ɪk\n'  ,u'ɪc\n'),
+			(u'ŋɡ' ,u'ng'),
+			(u'ŋk' ,u'nk'),
+			(u'ŋ'  ,u'ng'),
+			(u'ɡ'  ,u'g'),
+			(u'æ'  ,u'ä'),
+			(u'ʌ'  ,u'u'),
+			(u'ɔːr',u'or'),
+			(u'ɔː' ,u'au'),
+			(u'ɒ'  ,u'o'),
+			(u'əʊ' ,u'əw'),
+			(u'əʊ' ,u'əw'),
+			(u'oʊ' ,u'əw'),
+			(u'aʊ' ,u'ou'),
+			(u'ʊr' ,u'oor'),
+			(u'ɑːr',u'ar'),
+			(u'ɑː' ,u'o'),
+			(u'ɑ'  ,u'o'),
+			(u'iː' ,u'ee'),
+			(u'uː' ,u'oo'),
+			(u'ɔɪ' ,u'oy'),
+			(u'aɪ' ,u'ei'),
+			(u'eɪ' ,u'ay'),
+			(u'ˈju',u'eu'),
+			(u'ˈjʊ',u'eu'),
+			(u'ju' ,u'ew'),
+			(u'jʊ' ,u'ew'),
+			(u'ɜːr',u'ər'),
+			(u'əːr',u'ər'),
+			(u'ɪr' ,u'eer'),
+			(u'ɪər' ,u'eer'),
+			(u'er' ,u'air'),
+			(u'ˈdʒ',u'ˈj'),
+			(u'dʒ' ,u'dj'),
+			(u'tʃʊ' ,u'chw'),
+			(u'tʃ' ,u'ch'),
+			(u'ʃn',u'tion'),
+			(u'ʃən',u'tion'),
+			(u'ʒn' ,u'zion'),
+			(u'ʒən' ,u'zion'),
+			(u'ʃ\n'  ,u'sch\n'),
+			(u'ʃ'  ,u'sh'),
+			(u'j'  ,u'y'),
+			(u'a'  ,u'ä'),
+			(u'ː'  ,u''),
+		]:
+			pattern = each[0]
+			target  = each[1]
+			if match(i, array, pattern):
+				skip_counter = modify(i, array, len(pattern), target)
+				break
+	sound = ''.join(array)[1:-1]
+	if len(sound) > 1 and sound[0] == 'ˈ':
+		sound = sound[1:]
+	return sound
+
 class Vocab:
-	def __init__(self, w, s=None, c=None, r=0, f="", p="", m=None, cn=None):
-		self.word = w
-		self.__pr = get_pronunciation(self.word, L1only=True).replace("(ə)", "ə")
-		self.__en = None
-		self.__cn = None
-		self.__ck = c
-		self.rank = r
-		self.form = f
-		self.mean = m
-		self.part = p
-		self.chns = cn
+	def __init__(self, word, data, rank=""):
+		pr = '1'
+		en = '2'
+		cn = '3'
+		tg = '4'
+		self.word = word
+		self.part = None
+		self.rank = rank
+		if not data:
+			self.__en = {}
+			self.__cn = {}
+			self.__pr = "???"
+		else:
+			self.__en = data[en]
+			self.__cn = data[cn]
+			self.__pr = transcribe_pronunciation(data[pr])
 
 	@property
-	def pronunciation(self):
-		if self.__pr is None:
-			self.__pr = get_pronunciation(self.word)
-			return self.__pr
-		else:
-			return self.__pr
+	def exist(self):
+		return bool(self.__en)
 
 	@property
 	def english(self):
-		if self.__en is None:
-			self.__en = []
-			for each in get_english(self.word).split("\n"):
-				count = len(each)
-				if count > 0:
-					self.__en.append(Acceptation(each))
-			return self.__en
-		else:
-			return self.__en
+		return self.__en
 
 	@property
 	def chinese(self):
-		if self.__cn is None:
-			self.__cn = get_chinese(self.word)
-			return self.__cn
-		else:
-			return self.__cn
-
+		return self.__cn
+	
 	@property
-	def checked(self):
-		return self.__ck
+	def pronunciation(self):
+		return self.__pr
 
-class Acceptation:
-	def __init__(self, english):
-		p,s,m,e = english.split("\t")
+	def set_part(self, part):
+		self.part = part
 
-		self.part = self.abbrev(p)
-		self.subject = s
-		self.meaning = m
-		self.example = e
+	def print_part(self, p):
+		word = self.word
+		sound = self.pronunciation
+		#chinese = ""
+		chinese = self.chinese
+		sound = "*"+sound+"	"#+" :: "
+		splitter = u'	'+self.rank+u'	'#u'　'
 
-	def abbrev(self, part):
-		# if part == "(noun)"			: return "(n)"
-		# if part == "(pronoun)"		: return "(n)"
-		# if part == "(abbreviation)"	: return "(a)"
-		return part.upper()
-	@property
-	def p(self):
-		return self.part
-
-	@property
-	def s(self):
-		return self.subject
-
-	@property
-	def m(self):
-		return self.meaning
-
-	@property
-	def e(self):
-		return self.example
-
-'''
-	class
-	---------------------------
-	module
-'''
-def p_chinese(vocab, delay=0.5,skip=False):
-	if skip:
-		en = vocab.english
-		return
-	title = "%s  /%s/"%(vocab.word, vocab.pronunciation)
-	print("\n"+title+"\n"+vocab.chinese+"\n")
-
-def update(vocab, delay=0.5,skip=False, part=None):
-	update_from_web(vocab.word)
-	p(vocab, delay, skip, part)
-
-def local_update(vocab, delay=0.5,skip=False, part=None):
-	update_from_local(vocab.word)
-	p(vocab, delay, skip, part)
-
-def review(vocab, delay=0.5):
-	title = "%s: %s  |  %s"%(vocab.part[0], vocab.word.ljust(15), vocab.pronunciation)
-	print("-"*40)
-	print(title)
-	print(vocab.chns+"；"+vocab.mean)
-	time.sleep(delay)
-
-def p(vocab, delay=0.5,skip=False,part=None, update=False):
-	if skip:
-		en = vocab.english
-		return
-	if update:
-		if vocab.pronunciation is "" or vocab.pronunciation is None:
-			print(vocab.word)
-			print(vocab.pronunciation)
-			update_from_web(vocab.word)
-			#time.sleep(1)
-		return
-		if vocab.pronunciation is "":
-			print("100000	"+vocab.word)
+		if p == 'abbreviation':
+			printf(word.upper()+'.'+splitter)
 			return
-		else:
-			if vocab.rank == "" or vocab.rank > 999990:
-				print("	"+vocab.word)
+		if p == 'pronoun':
+			if 'pron.' in chinese:
+				splitter += chinese['pron.'].replace(u'，', u'；').split(u'；')[0]+u"。"
+				splitter = cc.convert(splitter)
+			printf(sound+word+splitter)
+			if 'pron.' in chinese:
+				print(chinese['pron.'])
+			return
+		if p == 'proper noun':
+			printf(sound+word.capitalize()+splitter)
+			return
+		if p == 'noun':
+			if 'n.' in chinese:
+				splitter += chinese['n.'].replace(u'，', u'；').split(u'；')[0]+u"。"
+				splitter = cc.convert(splitter)
+			if word[0] in ['a', 'e', 'i', 'o']:
+				printf(sound+'an '+word+splitter)
 			else:
-				print("%d	"%vocab.rank+vocab.word)
+				printf(sound+'a '+word+splitter)
+			if 'n.' in chinese:
+				print(chinese['n.'])
 			return
-		#pass
-	chinese = {}
-	for cn in vocab.chinese.split("\n"):
-		if len(cn) < 1:
-			continue
-		dot = cn.find('.')
-		p = cn[0:dot]
-		if p == "n":
-			chinese["(NOUN)"]=cn
-		if p == "pron":
-			chinese["(PRONOUN)"]=cn
-		if p == "v" or p == "vi" or p == "vt":
-			chinese["(VERB)"]=cn
-		if p == "adj":
-			chinese["(ADJECTIVE)"]=cn
-		if p == "adv":
-			chinese["(ADVERB)"]=cn
-	padding = ""
-	if len(vocab.pronunciation) > 1 and vocab.pronunciation[0] == "ˈ":
-		padding = "ˈ"
-	all_p = {}
-	for each in vocab.english:
-		if each.p not in all_p:
-			all_p[each.p] = []
-		line = ""
-		line += each.m
-		if len(each.s) > 0:
-			line += " -- used in "+each.s
-		line += "\n  "
-		if len(each.e) > 0:
-			line += each.e
-		all_p[each.p].append(line)
-	for p, all_m in all_p.items():
-		if (part is not None) and (p != part):
-			continue
-		if vocab.part in ("NOUN", "VERB", "ADJECTIVE", "ADVERB"):
-			if vocab.part not in p:
-				continue
-		#print(p,part,(part is not None),(p != part))
-		# if len(vocab.form) < 1:
-		# 	title = "%s%s\n%s"%(padding, vocab.word, vocab.pronunciation)
-		# else:
-		# 	title = "%s%s\n%s"%(padding, vocab.form, vocab.pronunciation)
-		print("-"*40)
-		if p == "(ABBREVIATION)":
-			title = "%s: %s  |  %s"%(p[1], vocab.word.upper().ljust(15), vocab.pronunciation)
-		elif p == "(PROPER NOUN)":
-			title = "%s: %s  |  %s"%(p[1], vocab.word.capitalize().ljust(15), vocab.pronunciation)
-		elif p == "(VERB)":
-			title = " to %s  |  %s"%(vocab.word.ljust(15), vocab.pronunciation)
-		elif p == "(NOUN)":
-			title = "the %s  |  %s"%(vocab.word.ljust(15), vocab.pronunciation)
-		elif p == "(ADJECTIVE)":
-			title = " be %s  |  %s"%(vocab.word.ljust(15), vocab.pronunciation)
-		else:
-			title = "%s: %s  |  %s"%(p[1], vocab.word.ljust(15), vocab.pronunciation)
-		print(title)
-		logging.info(title)
-		if vocab.chns is not None and len(vocab.chns) > 0:
-			chinese[p] = vocab.chns
-		if p in chinese:
-			print("> "+chinese[p]+" <")
-			logging.info(chinese[p])
-		if vocab.mean is not None:
-			print(vocab.mean)
-			logging.info(vocab.mean)
-			time.sleep(delay*vocab.mean.count(' '))
-		n = 0
-		for m in all_m:
-			n += 1
-			#print(("%s..."%n)+m)
-			#time.sleep(delay*m.count(' '))
-			sentence = m.split("    ")
-			if len(sentence) < 2:
-				sentence.append("")
-			logging.info(sentence[0])
-			if len(sentence[1]) > 1:
-				print(("%s..."%n)+sentence[1])
-				time.sleep(delay*sentence[1].count(' ')+1)
-				logging.info(sentence[1])
-		logging.info("....")
-	return ""
-def withdraw_all(dirxlsm, ind=0, row=1, review=False): #>> {"word":cols}
-	workbook = xlrd.open_workbook(dirxlsm)
-	sheet = workbook.sheet_by_index(ind)
-	pool = []
-	for rowx in range(sheet.nrows):
-		if rowx < row:
-			continue
-		cols = sheet.row_values(rowx)
-		wrd = cols[0] #Word
-		rnk = cols[1] #Rank
-		prn = cols[2] #Pronunciation
-		chk = cols[3] #Checked
-		frm = cols[4] #Formation
-		chn = cols[5] #Formation
-		prt = cols[6] #Formation
-		mng = cols[7] #Formation
-		if len(wrd) < 1:
-			continue
-		if wrd[0] == '*':
-			wrd = wrd[1:]
-		if review and chk == 1.0:
-			pool.append(Vocab(wrd, prn, chk, rnk, frm, prt, mng, chn))
-		elif review == False and chk != 1.0:
-			pool.append(Vocab(wrd, prn, chk, rnk, frm, prt, mng, chn))
-	return pool
+		if p == 'verb':
+			for key in ['vt.', 'vi.', 'v.', 'vt.&vi.']:
+				if key in chinese:
+					splitter += chinese[key].replace(u'，', u'；').split(u'；')[0]+u"。"
+					splitter = cc.convert(splitter)
+					break
+			printf(sound+'to '+word+splitter)
+			for key in ['vt.', 'vi.', 'v.', 'vt.&vi.']:
+				if key in chinese:
+					print(chinese[key])
+			return
+		if p == 'adjective':
+			if 'adj.' in chinese:
+				splitter += chinese['adj.'].replace(u'，', u'；').split(u'；')[0]+u"。"
+				splitter = cc.convert(splitter)
+			printf(sound+'be '+word+splitter)
+			if 'adj.' in chinese:
+				print(chinese['adj.'])
+			return
+		if p == 'adverb':
+			if 'adv.' in chinese:
+				splitter += chinese['adv.'].replace(u'，', u'；').split(u'；')[0]+u"。"
+				splitter = cc.convert(splitter)
+			printf(sound+word+', '+splitter)
+			if 'adv.' in chinese:
+				print(chinese['adv.'])
+			return
+		printf(sound+p+" "+word+splitter)
 
-def withdraw_all_old(dirxlsm, ind=0, row=2): #>> {"word":cols}
-	workbook = xlrd.open_workbook(dirxlsm)
-	sheet = workbook.sheet_by_index(ind)
-	pool = []
-	for rowx in range(sheet.nrows):
-		if rowx < row:
-			continue
-		cols = sheet.row_values(rowx)
-		w = cols[2] #Word
-		r = cols[4] #Rank
-		p = None #Pronunciation
-		c = cols[3] #Checked
-		f = cols[2] #Formation
-		if len(w) < 1:
-			continue
-		if w[0] == '*':
-			w = w[1:]
-		pool.append(Vocab(w, p, c, r, f))
-	return pool
+	def pprint(self, title_only=False):
+		#print(data)
+		#print(word+" [ "+transcribe_pronunciation(data[__pr])+" ]")
+		print(self.word)
+		if self.part != None:
+			if self.part in self.english:
+				self.print_part(self.part)
+			else:
+				printf("*??	"+self.word)
+			return
+		for p, m in self.english.items():
+			if self.part == None:
+				self.print_part(p)
+			if title_only:
+				continue
+			for each in m:
+				if len(each['s']) > 0:
+					print('* ['+each['s']+'] '+each['m'])
+				else:
+					print('* '+each['m'])
+				sentence = each['e']
+				if len(sentence) > 0:
+					if sentence[-1] not in ['!', '?', '.']:
+						print(' '*4+sentence[0].capitalize()+sentence[1:]+'.')
+					else:
+						print(' '*4+sentence[0].capitalize()+sentence[1:])
+				if len(each['c']) > 0:
+					print(each['c']+u'。')
+			print('-'*17)
